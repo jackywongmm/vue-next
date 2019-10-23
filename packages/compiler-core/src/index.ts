@@ -12,7 +12,7 @@ import { transformOn } from './transforms/vOn'
 import { transformBind } from './transforms/vBind'
 import { defaultOnError, createCompilerError, ErrorCodes } from './errors'
 import { trackSlotScopes, trackVForSlotScopes } from './transforms/vSlot'
-import { optimizeText } from './transforms/optimizeText'
+import { transformText } from './transforms/transformText'
 import { transformOnce } from './transforms/vOnce'
 import { transformModel } from './transforms/vModel'
 
@@ -53,10 +53,10 @@ export function baseCompile(
             transformExpression
           ]
         : []),
-      trackSlotScopes,
       transformSlotOutlet,
       transformElement,
-      optimizeText,
+      trackSlotScopes,
+      transformText,
       ...(options.nodeTransforms || []) // user transforms
     ],
     directiveTransforms: {

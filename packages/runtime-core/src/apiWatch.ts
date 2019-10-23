@@ -3,6 +3,7 @@ import {
   stop,
   isRef,
   Ref,
+  ComputedRef,
   ReactiveEffectOptions
 } from '@vue/reactivity'
 import { queueJob } from './scheduler'
@@ -20,7 +21,12 @@ import {
 } from './errorHandling'
 import { onBeforeUnmount } from './apiLifecycle'
 import { queuePostRenderEffect } from './createRenderer'
-import { WatchHandler } from './apiOptions'
+
+export type WatchHandler<T = any> = (
+  value: T,
+  oldValue: T,
+  onCleanup: CleanupRegistrator
+) => any
 
 export interface WatchOptions {
   lazy?: boolean
@@ -32,7 +38,7 @@ export interface WatchOptions {
 
 type StopHandle = () => void
 
-type WatcherSource<T = any> = Ref<T> | (() => T)
+type WatcherSource<T = any> = Ref<T> | ComputedRef<T> | (() => T)
 
 type MapSources<T> = {
   [K in keyof T]: T[K] extends WatcherSource<infer V> ? V : never
@@ -55,13 +61,9 @@ export function watch<T>(
 ): StopHandle
 
 // overload #3: array of multiple sources + cb
-export function watch<T extends WatcherSource<unknown>[]>(
+export function watch<T extends Readonly<WatcherSource<unknown>[]>>(
   sources: T,
-  cb: (
-    newValues: MapSources<T>,
-    oldValues: MapSources<T>,
-    onCleanup: CleanupRegistrator
-  ) => any,
+  cb: WatchHandler<MapSources<T>>,
   options?: WatchOptions
 ): StopHandle
 
@@ -83,9 +85,7 @@ export function watch<T = any>(
 
 function doWatch(
   source: WatcherSource | WatcherSource[] | SimpleEffect,
-  cb:
-    | ((newValue: any, oldValue: any, onCleanup: CleanupRegistrator) => any)
-    | null,
+  cb: WatchHandler | null,
   { lazy, deep, flush, onTrack, onTrigger }: WatchOptions = EMPTY_OBJ
 ): StopHandle {
   const instance = currentInstance
@@ -217,7 +217,7 @@ export function instanceWatch(
   return stop
 }
 
-function traverse(value: any, seen: Set<any> = new Set()) {
+function traverse(value: unknown, seen: Set<unknown> = new Set()) {
   if (!isObject(value) || seen.has(value)) {
     return
   }

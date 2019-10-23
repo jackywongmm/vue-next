@@ -1,8 +1,13 @@
-import { ComponentInternalInstance, Data } from './component'
+import { ComponentInternalInstance, Data, Emit } from './component'
 import { nextTick } from './scheduler'
 import { instanceWatch } from './apiWatch'
-import { EMPTY_OBJ, hasOwn, globalsWhitelist } from '@vue/shared'
-import { ExtractComputedReturns } from './apiOptions'
+import { EMPTY_OBJ, hasOwn, isGloballyWhitelisted } from '@vue/shared'
+import {
+  ExtractComputedReturns,
+  ComponentOptionsBase,
+  ComputedOptions,
+  MethodOptions
+} from './apiOptions'
 import { UnwrapRef, ReactiveEffect } from '@vue/reactivity'
 import { warn } from './warning'
 
@@ -12,8 +17,8 @@ export type ComponentPublicInstance<
   P = {},
   B = {},
   D = {},
-  C = {},
-  M = {},
+  C extends ComputedOptions = {},
+  M extends MethodOptions = {},
   PublicProps = P
 > = {
   [key: string]: any
@@ -24,9 +29,9 @@ export type ComponentPublicInstance<
   $slots: Data
   $root: ComponentInternalInstance | null
   $parent: ComponentInternalInstance | null
-  $emit: (event: string, ...args: unknown[]) => void
+  $emit: Emit
   $el: any
-  $options: any
+  $options: ComponentOptionsBase<P, B, D, C, M>
   $forceUpdate: ReactiveEffect
   $nextTick: typeof nextTick
   $watch: typeof instanceWatch
@@ -48,16 +53,45 @@ const publicPropertiesMap = {
   $options: 'type'
 }
 
-export const PublicInstanceProxyHandlers = {
+const enum AccessTypes {
+  DATA,
+  CONTEXT,
+  PROPS
+}
+
+export const PublicInstanceProxyHandlers: ProxyHandler<any> = {
   get(target: ComponentInternalInstance, key: string) {
-    const { renderContext, data, props, propsProxy } = target
-    if (data !== EMPTY_OBJ && hasOwn(data, key)) {
+    const { renderContext, data, props, propsProxy, accessCache, type } = target
+    // This getter gets called for every property access on the render context
+    // during render and is a major hotspot. The most expensive part of this
+    // is the multiple hasOwn() calls. It's much faster to do a simple property
+    // access on a plain object, so we use an accessCache object (with null
+    // prototype) to memoize what access type a key corresponds to.
+    const n = accessCache![key]
+    if (n !== undefined) {
+      switch (n) {
+        case AccessTypes.DATA:
+          return data[key]
+        case AccessTypes.CONTEXT:
+          return renderContext[key]
+        case AccessTypes.PROPS:
+          return propsProxy![key]
+      }
+    } else if (data !== EMPTY_OBJ && hasOwn(data, key)) {
+      accessCache![key] = AccessTypes.DATA
       return data[key]
     } else if (hasOwn(renderContext, key)) {
+      accessCache![key] = AccessTypes.CONTEXT
       return renderContext[key]
     } else if (hasOwn(props, key)) {
+      // only cache props access if component has declared (thus stable) props
+      if (type.props != null) {
+        accessCache![key] = AccessTypes.PROPS
+      }
       // return the value from propsProxy for ref unwrapping and readonly
       return propsProxy![key]
+    } else if (key === '$cache') {
+      return target.renderCache || (target.renderCache = [])
     } else if (key === '$el') {
       return target.vnode.el
     } else if (hasOwn(publicPropertiesMap, key)) {
@@ -76,11 +110,7 @@ export const PublicInstanceProxyHandlers = {
     }
     return target.user[key]
   },
-  // this trap is only called in browser-compiled render functions that use
-  // `with (this) {}`
-  has(_: any, key: string): boolean {
-    return key[0] !== '_' && !globalsWhitelist.has(key)
-  },
+
   set(target: ComponentInternalInstance, key: string, value: any): boolean {
     const { data, renderContext } = target
     if (data !== EMPTY_OBJ && hasOwn(data, key)) {
@@ -103,5 +133,16 @@ export const PublicInstanceProxyHandlers = {
       target.user[key] = value
     }
     return true
+  }
+}
+
+if (__RUNTIME_COMPILE__) {
+  // this trap is only called in browser-compiled render functions that use
+  // `with (this) {}`
+  PublicInstanceProxyHandlers.has = (
+    _: ComponentInternalInstance,
+    key: string
+  ): boolean => {
+    return key[0] !== '_' && !isGloballyWhitelisted(key)
   }
 }
