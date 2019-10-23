@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+  <script src="./packages/vue/dist/vue.global.js"></script>
+  <title>Document</title>
+</head>
+
+<body>
+  <div id="app">
+  </div>
+  <script id="main" type="text/template">
+    <div @click="addCount" style="color:red">
+        {{state.count}}
+    </div>
+  </script>
+
+</body>
+<script>
+  const tm = Vue.compile(document.getElementById('main').innerHTML)
+  const { compile, h, createApp, onMounted, onUnmounted, reactive, computed, effect, watch } = Vue
+  const App = {
+    render: tm,
+    setup() {
+      const state = reactive({
+        count: 1
+      })
+      effect(() => {
+        console.log(state.count)
+      })
+      function addCount() {
+        state.count++
+      }
+      return { state, addCount }
+    }
+  }
+  let vm = Vue.createApp().mount(App, '#app')
+
+  console.log('模板被compile的 tm', tm) // ()=> vNode
+  console.log('实例化后的 vm', vm)  //Vue组件实例
+  console.log('options选项 App', App)  //options
+  console.log('cretElement的 vnode', Vue.h(App)) // vNode
+
+</script>
+
+</html>
